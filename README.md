@@ -3,6 +3,6 @@ Simple MD5/SHA1 BruteForce Attack
 
 ## Usage
 
-``go build cracker.go``
+``go build crack.go``
 
-``./cracker``
+``./crack``
