@@ -1,5 +1,12 @@
 package main
 
+////////////////////
+//
+//   By: Slim Jay
+//
+//
+////////////////////
+
 import (
 	"bufio"
 	"crypto/md5"
