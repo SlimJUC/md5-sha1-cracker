@@ -6,82 +6,90 @@ import (
 	"crypto/sha1"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
+	"unicode"
 )
 
-// Generate hash for a password
 func generateHash(password string, algorithm string) string {
-	if algorithm == "sha1" {
+	switch algorithm {
+	case "sha1":
 		h := sha1.New()
 		h.Write([]byte(password))
 		return fmt.Sprintf("%x", h.Sum(nil))
-	} else if algorithm == "md5" {
+	case "md5":
 		h := md5.New()
 		h.Write([]byte(password))
 		return fmt.Sprintf("%x", h.Sum(nil))
-	} else {
+	default:
 		panic(fmt.Sprintf("Unsupported algorithm: %s", algorithm))
 	}
 }
 
+func sanitize(input string) string {
+	var output []rune
+	for _, r := range input {
+		if unicode.IsPrint(r) && !unicode.IsSpace(r) {
+			output = append(output, r)
+		}
+		if len(output) >= 30 {
+			break
+		}
+	}
+	return string(output)
+}
+
 func main() {
-	// Get user input for stored password hash and read user passwords from a file
-	var storedPasswordHash string
+	var storedPasswordHash, passwordFile string
 	fmt.Print("Enter the stored password hash: ")
 	fmt.Scan(&storedPasswordHash)
 
+	storedPasswordHash = strings.ToLower(storedPasswordHash)
+
 	var algorithm string
-	if len(storedPasswordHash) == 32 {
+	switch len(storedPasswordHash) {
+	case 32:
 		algorithm = "md5"
-	} else if len(storedPasswordHash) == 40 {
+	case 40:
 		algorithm = "sha1"
-	} else {
-		panic("Unable to detect hash algorithm")
+	default:
+		panic("Unable to detect hash algorithm based on hash length")
 	}
 
-	var passwordFile string
 	fmt.Print("Enter the file name containing the list of passwords: ")
 	fmt.Scan(&passwordFile)
 
-	// Read the passwords from the file
 	file, err := os.Open(passwordFile)
 	if err != nil {
 		panic(err)
 	}
 	defer file.Close()
 
-	var passwords []string
 	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		passwords = append(passwords, scanner.Text())
-	}
-
-	if err := scanner.Err(); err != nil {
-		panic(err)
-	}
-
-	// Check each password and output the result
 	var wg sync.WaitGroup
-	found := make(chan string, len(passwords))
+	found := make(chan bool, 1)
 
-	for _, password := range passwords {
-		wg.Add(1)
-		go func(password string) {
-			passwordHash := generateHash(password, algorithm)
-			if passwordHash == storedPasswordHash {
-				found <- password
-			}
-			wg.Done()
-		}(password)
+	go func() {
+		for scanner.Scan() {
+			password := scanner.Text()
+			password = strings.TrimSpace(password)
+			displayPassword := sanitize(password)
+			fmt.Printf("\r\033[KTesting password: %s", displayPassword)
+			wg.Add(1)
+			go func(password string) {
+				defer wg.Done()
+				passwordHash := generateHash(password, algorithm)
+				if passwordHash == storedPasswordHash {
+					fmt.Printf("\r\033[KPassword %s is correct\n", displayPassword)
+					found <- true
+				}
+			}(password)
+		}
+		wg.Wait()
+		close(found)
+	}()
+
+	if _, ok := <-found; !ok {
+		fmt.Printf("\r\033[KNone of the passwords in the list are correct\n")
 	}
-
-	wg.Wait()
-	close(found)
-
-	for password := range found {
-		fmt.Printf("Password %s is correct\n", password)
-		return
-	}
-
-	fmt.Println("None of the passwords in the list are correct")
 }
